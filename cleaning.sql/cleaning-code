@@ -1,0 +1,116 @@
+SELECT
+  *
+FROM
+  "NASHVILLE"."RAW"."NASHVILLE_RAW";
+  
+----Standardize date format
+UPDATE NASHVILLE.RAW.NASHVILLE_RAW
+SET SALEDATE = TRY_TO_DATE(SALEDATE, 'MMMM DD, YYYY');
+
+SELECT SALEDATE FROM "NASHVILLE"."RAW"."NASHVILLE_RAW";
+
+----Populate Property Address data
+SELECT 
+    PROPERTYADDRESS 
+FROM "NASHVILLE"."RAW"."NASHVILLE_RAW";
+
+SELECT 
+    a.parcelid,
+    a.propertyaddress,
+    b.parcelid,
+    b.propertyaddress,
+    IFNULL(a.propertyaddress,b.propertyaddress)
+FROM "NASHVILLE"."RAW"."NASHVILLE_RAW" a
+JOIN "NASHVILLE"."RAW"."NASHVILLE_RAW" b 
+    ON a.parcelid = b.parcelid
+    AND a.UNIQUEID != b.UNIQUEID
+WHERE a.propertyaddress is null;
+
+UPDATE NASHVILLE.RAW.NASHVILLE_RAW AS a
+SET PROPERTYADDRESS = b.PROPERTYADDRESS
+FROM NASHVILLE.RAW.NASHVILLE_RAW AS b
+WHERE a.PROPERTYADDRESS IS NULL
+  AND b.PROPERTYADDRESS IS NOT NULL
+  AND a.PARCELID = b.PARCELID
+  AND a.UNIQUEID <> b.UNIQUEID;
+
+----Breaking out Address into Individual Columns (Address, City, State)
+--PropertyAddress
+select PropertyAddress
+from "NASHVILLE"."RAW"."NASHVILLE_RAW";
+
+SELECT 
+    TRIM(SUBSTR(PROPERTYADDRESS, 1, CHARINDEX(',', PROPERTYADDRESS) - 1)) AS Address,
+    TRIM(SUBSTR(PROPERTYADDRESS, CHARINDEX(',', PROPERTYADDRESS) + 1)) AS Address
+FROM "NASHVILLE"."RAW"."NASHVILLE_RAW";
+
+ALTER table "NASHVILLE"."RAW"."NASHVILLE_RAW"
+Add PropertySplitAddress Nvarchar(255);
+
+UPDATE "NASHVILLE"."RAW"."NASHVILLE_RAW"
+SET PropertySplitAddress = TRIM(SUBSTR(PROPERTYADDRESS, 1, CHARINDEX(',', PROPERTYADDRESS) - 1));
+
+ALTER table "NASHVILLE"."RAW"."NASHVILLE_RAW"
+Add PropertySplitCity Nvarchar(255);
+
+UPDATE "NASHVILLE"."RAW"."NASHVILLE_RAW"
+SET PropertySplitCity = TRIM(SUBSTR(PROPERTYADDRESS, CHARINDEX(',', PROPERTYADDRESS) + 1));
+
+--OwnerAdress
+select owneraddress
+from "NASHVILLE"."RAW"."NASHVILLE_RAW";
+
+SELECT
+    split_part(owneraddress, ',', 1) AS OwnerSplitAdress,
+    split_part(owneraddress, ',', 2) AS OwnerSplitCity,
+    split_part(owneraddress, ',', 3) AS OwnerSplitState
+FROM "NASHVILLE"."RAW"."NASHVILLE_RAW";
+
+ALTER table "NASHVILLE"."RAW"."NASHVILLE_RAW"
+Add OwnerSplitAddress Nvarchar(255);
+
+UPDATE "NASHVILLE"."RAW"."NASHVILLE_RAW"
+SET OwnerSplitAddress = split_part(owneraddress, ',', 1);
+
+ALTER table "NASHVILLE"."RAW"."NASHVILLE_RAW"
+Add OwnerSplitCity Nvarchar(255);
+
+UPDATE "NASHVILLE"."RAW"."NASHVILLE_RAW"
+SET OwnerSplitCity = split_part(owneraddress, ',', 2);
+
+ALTER table "NASHVILLE"."RAW"."NASHVILLE_RAW"
+Add OwnerSplitState Nvarchar(255);
+
+UPDATE "NASHVILLE"."RAW"."NASHVILLE_RAW"
+SET OwnerSplitState = split_part(owneraddress, ',', 3);
+
+SELECT * FROM "NASHVILLE"."RAW"."NASHVILLE_RAW";
+
+---- Remove duplicates
+
+CREATE TEMP TABLE RowNumCTE AS
+SELECT UNIQUEID
+FROM (
+  SELECT UNIQUEID,
+         ROW_NUMBER() OVER (
+           PARTITION BY PARCELID, PROPERTYADDRESS, SALEPRICE, SALEDATE, LEGALREFERENCE
+           ORDER BY UNIQUEID
+         ) AS rn
+  FROM "NASHVILLE"."RAW"."NASHVILLE_RAW"
+)
+WHERE rn > 1;
+
+DELETE FROM "NASHVILLE"."RAW"."NASHVILLE_RAW" t
+USING RowNumCTE d
+WHERE t.UNIQUEID = d.UNIQUEID;
+
+---- Delete unused columns
+
+ALTER TABLE "NASHVILLE"."RAW"."NASHVILLE_RAW"
+DROP COLUMN OwnerAddress,
+            TaxDistrict,
+            PropertyAddress;
+
+ALTER TABLE "NASHVILLE"."RAW"."NASHVILLE_RAW"
+DROP COLUMN SaleDate;
+
